@@ -5,7 +5,7 @@ from starlette import status
 
 from config.db_conf import get_db
 from crud import users
-from crud.users import get_user_by_username, create_user, create_token
+from crud.users import get_user_by_username, create_user
 from models.users import User
 from schemas.users import UserRequest, UserAuthResponse, UserInfoResponse, UserUpdateRequest, UserChangePasswordRequest
 from utils import security
@@ -22,18 +22,23 @@ async def register(user_data: UserRequest,db:AsyncSession = Depends(get_db)):
     if existing_user:
         raise HTTPException(status_code=400,detail="用户名已存在")
     user = await create_user(db,user_data)
-    token = await create_token(db,user.id)
+    token = security.create_access_token(data={"sub": str(user.id)})
     response_data = UserAuthResponse(token=token, user_info=UserInfoResponse.model_validate(user))
     return success_response(message="注册成功", data=response_data)
 
 
+# 将你的 login 函数改成这样：
 @router.post("/login")
 async def login(user_data: UserRequest, db: AsyncSession = Depends(get_db)):
-    # 登录逻辑：验证用户是否存在 ; 验证密码 ; 生成 Token  → 响应结果
+    # 1. 验证密码对不对
     user = await users.authenticate_user(db, user_data.username, user_data.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
-    token = await users.create_token(db, user.id)
+
+    # 2. 密码正确，直接发 JWT 手环！(注意看，不需要写数据库了)
+    # 我们把 user_id 藏进手环的 payload 里（通常习惯用 'sub' 代表 subject）
+    token = security.create_access_token(data={"sub": str(user.id)})
+
     response_data = UserAuthResponse(token=token, user_info=UserInfoResponse.model_validate(user))
     return success_response(message="登录成功", data=response_data)
 
